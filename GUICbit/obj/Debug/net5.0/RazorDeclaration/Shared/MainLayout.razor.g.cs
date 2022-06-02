@@ -82,6 +82,13 @@ using GUICbit.Shared;
 #line default
 #line hidden
 #nullable disable
+#nullable restore
+#line 2 "C:\Users\Isac\source\repos\GUICbit\GUICbit\Shared\MainLayout.razor"
+using MudBlazor;
+
+#line default
+#line hidden
+#nullable disable
     public partial class MainLayout : LayoutComponentBase
     {
         #pragma warning disable 1998

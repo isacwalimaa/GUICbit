@@ -83,6 +83,13 @@ using GUICbit.Shared;
 #line hidden
 #nullable disable
 #nullable restore
+#line 11 "C:\Users\Isac\source\repos\GUICbit\GUICbit\_Imports.razor"
+using MudBlazor;
+
+#line default
+#line hidden
+#nullable disable
+#nullable restore
 #line 3 "C:\Users\Isac\source\repos\GUICbit\GUICbit\Pages\FetchData.razor"
 using GUICbit.Data;
 

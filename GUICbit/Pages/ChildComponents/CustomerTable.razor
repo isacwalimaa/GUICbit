@@ -1,5 +1,497 @@
-﻿<h3>CustomerTable</h3>
+﻿@*@using System.Net.Http.Json
+@using Core.Interfaces.DataAccess
+@using Core.Interfaces.UseCases
+@using Core.Models
+@using Infrastructure.Database.Models
+@using Infrastructure.Database.Repositories
+@inject HttpClient httpClient
+@inject ICustomerRepository CustomerRepo
+@inject IUpdateCustomerKYCLevelUseCase UppdateKYCCustomerUseCase
+@inject IUpdateCustomerInternalColorUseCase UppdateCustomerColorUseCase
+@inject IUpdateCustomerInternalStatusUseCase UpdateCustomerInternalStatusUseCase
+@inject IGetAllInternalStatusUseCase GetAllInternalStatusUseCase
+@inject ISnackbar Snackbar
+@inject AuthenticationStateProvider AuthenticationState
+@using MudBlazor.Utilities
+@using UserInterface.Pages.Child_Components
+@using static MudBlazor.CategoryTypes
+@inject IJSRuntime JSRuntime
+
+@if (loading)
+{
+	<MudProgressLinear Color="Color.Success" Indeterminate="true" />
+}
+
+	<MudTable HorizontalScrollbar="true" MultiSelection="true" @bind-SelectedItems="SelectedCustomers" T="CustomerModel" OnRowClick="@OnRowClicked" @ref="table" Context="customerContext" RowsPerPage="50" Bordered="true"
+			  Items="@CustomerList" Dense=true Hover=true Filter="new Func<CustomerModel,bool>(FilterFunc)" SortLabel="Sort By" FixedHeader="true" Height="@tableLength" Style="position: relative;"
+
+				  RowEditPreview="BackupItem" @bind-SelectedItem="selectedItem1" RowEditCancel="ResetItemToOriginalValues" CanCancelEdit="true" RowEditCommit="commitEdit" ReadOnly="readOnly">
+		<ToolBarContent>
+			<MudText>Customers</MudText>
+			<MudSpacer />
+			<MudCheckBox @bind-Checked="@filterBankAcountDetails">Display Bank Account Information</MudCheckBox>
+			@{
+				if (context.User.IsInRole("Quote.Manager"))
+				{
+						<MudSpacer />
+						<MudSwitch Color="Color.Success" @bind-Checked="@readOnly">Disable Inline Edit</MudSwitch>
+						<MudSpacer />
+
+						<div class="d-flex flex-column pa-1">
+							<MudButton Variant="Variant.Outlined" Color="Color.Success" OnClick="@ToggleOpenInternalForm">Add Status</MudButton>
+							@if (_IsOpenInternalStatusForm)
+						{
+								<InternalStatusForm OnClick="ClickHandler"></InternalStatusForm>
+						}
+						</div>
+
+				}
+			}
+			<MudSelect Margin="Margin.Dense" IconSize="Size.Medium" Class="mt-0" Style="width:7rem;" Label="Filter Status" Text="All" Variant="Variant.Outlined" AdornmentIcon="@Icons.Filled.FilterList" Adornment="Adornment.Start" FullWidth="true" @bind-Value="statusFilter">
+				<MudSelectItem @onclick="SearchClicked" T="string" Value=null>All</MudSelectItem>
+				<MudSelectItem @onclick="SearchClicked" T="string" Value="@("New")">New Customer</MudSelectItem>
+
+				@foreach (var status in StatusList)
+				{
+					<MudSelectItem T="string" Value="status.Status">@status.Status</MudSelectItem>
+				}
+				@*	<MudSelectItem @onclick="SearchClicked" T="string" Value="@("Not Approved")">Not Approved</MudSelectItem>
+				<MudSelectItem @onclick="SearchClicked" T="string" Value="@("Approved")">Approved</MudSelectItem>
+				<MudSelectItem @onclick="SearchClicked" T="string" Value="@("New")">New Customer</MudSelectItem>
+				<MudSelectItem @onclick="SearchClicked" T="string" Value="@("Withdrawal")">Withdrawal</MudSelectItem>*@
+
+			</MudSelect>
+			<MudSelect T="int" Value="selectKYCLevel" ValueChanged="FilterKycLevel" Margin="Margin.Dense" IconSize="Size.Medium" Class="mt-0" Style="width:7rem;" Label="Filter KYC Level" Text="All" Variant="Variant.Outlined" AdornmentIcon="@Icons.Filled.FilterList" Adornment="Adornment.Start" FullWidth="true">
+				<MudSelectItem T="int" Value=3>All</MudSelectItem>
+				<MudSelectItem T="int" Value=1>KYC Level 1</MudSelectItem>
+				<MudSelectItem T="int" Value=0>KYC Level 0</MudSelectItem>
+			</MudSelect>
+			<MudSpacer />
+			<div class="d-flex">
+				<MudIconButton Icon="@Icons.Filled.FilterList" OnClick="@ToggleOpenSearch" />
+
+				<MudPopover Open="@_isOpen" AnchorOrigin="Origin.BottomCenter" TransformOrigin="Origin.TopCenter">
+					<div class="d-flex flex-column pa-1">
+						<MudSwitch Color="Color.Success" @bind-Checked="_searchCompanyName"><MudText>Company Name </MudText></MudSwitch>
+						<MudSwitch Color="Color.Success" @bind-Checked="_searchCustomerReference">Customer Refernce</MudSwitch>
+						<MudSwitch Color="Color.Success" @bind-Checked="_searchCustomerGuid">Customer Guid</MudSwitch>
+						<MudSwitch Color="Color.Success" @bind-Checked="_searchCountry">Country</MudSwitch>
+						<MudSwitch Color="Color.Success" @bind-Checked="_searchVatNumber">Vat Number</MudSwitch>
+					</div>
+				</MudPopover>
+			</div>
+			<MudTextField Label="Search" @onclick="SearchClicked" @bind-Value="searchString" Placeholder="Search" Margin="Margin.Dense" Clearable="true" Immediate="true" Style="width:18rem; float:right;"
+						  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Variant="Variant.Outlined" IconSize="Size.Medium" Class="mt-0"></MudTextField>
+
+		</ToolBarContent>
+		<ColGroup>
+		<td colspan="13">
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute; width:2%" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style="max-width:5%; max-height:1%; position:absolute" />
+			<col style=" max-height:1%; " />
+		</td>
+		</ColGroup>
+		<HeaderContent>
+			<MudTh Style="font-size:12px; width:26rem;"><MudTableSortLabel SortBy="new Func<CustomerModel, object>(x=>x.CustomerReference)">Reference</MudTableSortLabel></MudTh>
+			<MudTh Style="font-size:12px; width:26rem;"><MudTableSortLabel SortBy="new Func<CustomerModel, object>(x=>x.CustomerInternalGuid)">Internal Guid</MudTableSortLabel></MudTh>
+			<MudTh Style="font-size:12px; width:20px;"><MudTableSortLabel SortBy="new Func<CustomerModel, object>(x=>x.CustomerKYCLevel)">KYC Level</MudTableSortLabel></MudTh>
+			<MudTh Style="font-size:12px; width:3rem;">Company Id</MudTh>
+			<MudTh Style="font-size:12px; width:8rem;">Company Type</MudTh>
+			<MudTh Style="font-size:12px; width:6rem;">Company Name</MudTh>
+			<MudTh Style="font-size:12px; width:8rem;">Company Vat Number</MudTh>
+			<MudTh Style="font-size:12px; width:4rem;">Country Code</MudTh>
+			<MudTh Style="font-size:12px; width:10rem;">Street Address</MudTh>
+			<MudTh Style="font-size:12px; width:6rem;">Zip Code</MudTh>
+			<MudTh Style="font-size:12px; width:11rem;">Public Url</MudTh>
+			<MudTh Style="font-size:12px; width:11rem;">Status</MudTh>
+			<MudTh Style="font-size:12px; width:14rem;"></MudTh>
+			
+		</HeaderContent>
+		<RowTemplate>
+			@{
+				var color = "";
+			}
+			@if (@customerContext.CustomerInternalColor != null)
+			{
+				color = "font-size:12px; background-color:" + @customerContext.CustomerInternalColor + "; word-break: break-all;white-space: nowrap; padding-top: 0px !important; padding-bottom: 0px !important;";
+			}
+			else if (@customerContext.InternalStatus is not null)
+			{
+				color = "font-size:12px; background-color:" + @customerContext.InternalStatus.Colour + "; padding-top: 0px !important;white-space: nowrap; padding-bottom: 0px !important;";
+
+			}
+			else
+			{
+				color = "font-size:12px; background-color:#f2ff66;white-space: nowrap; padding-top: 0px !important; padding-bottom: 0px !important;";
+			}
+
+			<MudTd Style="@color" DataLabel="Customer Reference">@customerContext.CustomerReference</MudTd>
+			<MudTd Style="@color" DataLabel="Customer Internal Guid">@customerContext.CustomerInternalGuid</MudTd>
+			<MudTd Style="@color" DataLabel="Customer KYC Level">
+				@customerContext.CustomerKYCLevel
+				@if (@_isOpenEditCustomer && customerContext.CustomerInternalGuid.Equals(CustomerInternalGuid) && customerContext.CustomerInformation is null)
+				{
+					<EditCustomerPopUp customerObj=@customerContext OnClick="ClickHandler"></EditCustomerPopUp>
+				}
+			</MudTd>
+			@if (customerContext.CustomerInformation is not null)
+			{
+				<MudTd Style="@color" DataLabel="Company Id">@customerContext.CustomerInformation.CompanyId</MudTd>
+				if (customerContext.CustomerInformation.CompanyType is not null)
+				{
+					<MudTd Style="@color" DataLabel="Company Type">@customerContext.CustomerInformation.CompanyType.DisplayName</MudTd>
+				}
+				else
+				{
+					<MudTd Style="@color"></MudTd>
+				}
+				<MudTd Style="@color" DataLabel="Company Name">@customerContext.CustomerInformation.CompanyName</MudTd>
+				<MudTd Style="@color" DataLabel="Company Vat Number">@customerContext.CustomerInformation.CompanyVatNumber</MudTd>
+				<MudTd Style="@color" DataLabel="Country Code">
+					@customerContext.CustomerInformation.CountryCode
+					@if (@_isOpenEditCustomer && customerContext.CustomerInternalGuid.Equals(CustomerInternalGuid))
+					{
+						<EditCustomerPopUp customerObj=@customerContext OnClick="ClickHandler"></EditCustomerPopUp>
+					}
+					@if (@_isOpenComment && customerContext.CustomerInternalGuid.Equals(CustomerInternalGuid))
+					{
+						<CustomerComment customerObj=@customerContext OnClick="ClickHandler"></CustomerComment>
+					}
+				</MudTd>
+				<MudTd Style="@color" DataLabel="Street Address">@customerContext.CustomerInformation.StreetAddress</MudTd>
+				<MudTd Style="@color" DataLabel="Zip Code">@customerContext.CustomerInformation.ZipCode</MudTd>
+				<MudTd Style="@color" DataLabel="Public Url">@customerContext.CustomerInformation.PublicUrl</MudTd>
+
+			}
+			else
+			{
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+			}
+			@if (customerContext.InternalStatus is null)
+			{
+				<MudTd Style="@color" DataLabel="Customer Internal Status">New Customer</MudTd>
+			}
+			else
+			{
+				<MudTd Style="@color" DataLabel="Customer Internal Status">@customerContext.InternalStatus.Status</MudTd>
+			}
+			@if (context.User.IsInRole("Quote.Manager"))
+			{
+				<MudTd Style="@color">
+					<div>
+						<MudTooltip Text="Copy row" Arrow="true" Placement="Placement.Top">
+							<MudIconButton ButtonType="ButtonType.Button" Icon="@Icons.Filled.ContentCopy" Size="Size.Small" Color="Color.Default" OnClick="@(() => CopyTextToClipboard(customerContext))" Class="ml-auto"></MudIconButton>
+						</MudTooltip>
+						<MudTooltip Text="Edit" Arrow="true" Placement="Placement.Top">
+							<MudIconButton Style="height:auto; width:auto;" ButtonType="ButtonType.Button" Icon="@Icons.Filled.ModeEdit" Size="Size.Small" Color="Color.Default" OnClick="@(() => ToggleOpenEditor(customerContext.CustomerInternalGuid))" Class="ml-auto"></MudIconButton>
+						</MudTooltip>
+
+						@if (string.IsNullOrEmpty(customerContext.CustomerInternalComment))
+						{
+							<MudTooltip Text="Comment" Arrow="true" Placement="Placement.Top">
+								<MudIconButton Style="height:auto; width:auto;" ButtonType="ButtonType.Button" Icon="@Icons.Filled.AddComment" Size="Size.Small" Color="Color.Success" OnClick="@(() => ToggleOpenComment(customerContext.CustomerInternalGuid))" Class="ml-auto"></MudIconButton>
+							</MudTooltip>
+						}
+						else
+						{
+							<MudTooltip Text="Comment" Arrow="true" Placement="Placement.Top">
+								<MudIconButton Style="height:auto; width:auto;" ButtonType="ButtonType.Button" Icon="@Icons.Filled.Comment" Size="Size.Small" Color="Color.Default" OnClick="@(() => ToggleOpenComment(customerContext.CustomerInternalGuid))" Class="ml-auto"></MudIconButton>
+							</MudTooltip>
+						}
+					</div>
+				</MudTd>
+
+			}
+			else
+			{
+				<MudTd Style="@color"></MudTd>
+			}
+		</RowTemplate>
+		<RowEditingTemplate>
+			@{
+				var color = "";
+			}
+			@if (@customerContext.CustomerInternalColor != null)
+			{
+				color = "font-size:12px; background-color:" + @customerContext.CustomerInternalColor + "; word-break: break-all; padding-top: 0px !important; padding-bottom: 0px !important;";
+			}
+			else if (@customerContext.InternalStatus is not null)
+			{
+				color = "font-size:12px; background-color:" + @customerContext.InternalStatus.Colour + "; padding-top: 0px !important; padding-bottom: 0px !important;";
+
+			}
+			else
+			{
+				color = "font-size:12px; background-color:#f2ff66; padding-top: 0px !important; padding-bottom: 0px !important;";
+			}
+
+			<MudTd Style="@color" DataLabel="Customer Reference">@customerContext.CustomerReference</MudTd>
+			<MudTd Style="@color" DataLabel="Customer Internal Guid">@customerContext.CustomerInternalGuid</MudTd>
+			<MudTd Style="@color" DataLabel="Customer KYC Level">
+				<MudSelect Style="@color" @bind-Value="@customerContext.CustomerKYCLevel" Required>
+					@foreach (var level in @customerContext.Platform.KYCLevels)
+					{
+						<MudSelectItem Value="@int.Parse(@level.Level)" />
+					}
+				</MudSelect>
+			</MudTd>
+			@if (@customerContext.CustomerInformation is not null)
+			{
+				<MudTd Style="@color" DataLabel="Company Id">@customerContext.CustomerInformation.CompanyId</MudTd>
+				if (@customerContext.CustomerInformation.CompanyType is not null)
+				{
+					<MudTd Style="@color" DataLabel="Company Type">@customerContext.CustomerInformation.CompanyType.DisplayName</MudTd>
+				}
+				else
+				{
+					<MudTd Style="@color"></MudTd>
+				}
+				<MudTd Style="@color" DataLabel="Company Name">@customerContext.CustomerInformation.CompanyName</MudTd>
+				<MudTd Style="@color" DataLabel="Company Vat Number">@customerContext.CustomerInformation.CompanyVatNumber</MudTd>
+				<MudTd Style="@color" DataLabel="Country Code">@customerContext.CustomerInformation.CountryCode</MudTd>
+				<MudTd Style="@color" DataLabel="Street Address">@customerContext.CustomerInformation.StreetAddress</MudTd>
+				<MudTd Style="@color" DataLabel="Zip Code">@customerContext.CustomerInformation.ZipCode</MudTd>
+				<MudTd Style="@color" DataLabel="Public Url">@customerContext.CustomerInformation.PublicUrl</MudTd>
+			}
+			else
+			{
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+				<MudTd Style="@color"></MudTd>
+			}
+			<MudTd Style="@color" DataLabel="Customer Internal Status">
+				<MudSelect Style="font-size: 12px !important" FullWidth="true" @bind-Value="@customerContext.InternalStatus" Text="Select status">
+					@foreach (var status in StatusList)
+					{
+						<MudSelectItem Style="font-size: 12px !important" T="InternalStatusModel" Value="status">@status.Status</MudSelectItem>
+					}
+				</MudSelect>
+			</MudTd>
+
+			<MudTd Style="@color">
+				<div style="height:52px; width: 4rem;">
+					<MudColorPicker @onkeypress="commitEdit" @bind-Text="@customerContext.CustomerInternalColor" Square="true" Palette="CustomPalette" DisablePreview="true" ColorPickerView="ColorPickerView.Palette" />
+				</div>
+			</MudTd>
+
+		</RowEditingTemplate>
+		<ChildRowContent>
+			@if (customerContext.BankAccountDetails.Count() > 0 && @filterBankAcountDetails)
+			{
+				<MudTr>
+					<td colspan="14">
+						<MudCard Elevation="0">
+							<MudCardContent Class="pa-0">
+								<MudTable Items="@customerContext.BankAccountDetails" Context="BankAccountContext" Hover="true" Breakpoint="Breakpoint.Sm" Elevation="0">
+									<ColGroup>
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%; width:10rem" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+										<col style="background-color:#d2d2f8;max-width:5%; max-height:1%" />
+									</ColGroup>
+									<RowTemplate>
+										<MudTd></MudTd>
+										<MudTd Style="font-size:10px">Bank Acount</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BankAccountName">Bank Account Name: @BankAccountContext.BankAccountName</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BankAccountName">Bank Account Number: @BankAccountContext.BankAccountNumber</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BankAccountName">Ban kCode: @BankAccountContext.BankCode</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BankAccountName">Currenc yCode: @BankAccountContext.CurrencyCode</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="SortCode">Sort Code: @BankAccountContext.SortCode</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="IBAN">  IBAN: @BankAccountContext.IBAN </MudTd>
+										<MudTd Style="font-size:10px" DataLabel="SwiftCode">Swift Code: @BankAccountContext.SwiftCode</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="AchRoutingNumber">Ach Routing Number: @BankAccountContext.AchRoutingNumber</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BankAccountName">Fedwire Routing Number: @BankAccountContext.FedwireRoutingNumber</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BsbCode">Bsb Code: @BankAccountContext.BsbCode</MudTd>
+										<MudTd Style="font-size:10px" DataLabel="BranchCode">Branch Code: @BankAccountContext.BranchCode</MudTd>
+									</RowTemplate>
+								</MudTable>
+							</MudCardContent>
+						</MudCard>
+					</td>
+				</MudTr>
+			}
+		</ChildRowContent>
+		<PagerContent>
+			<MudTablePager PageSizeOptions="new int[]{15, 50, 100}" />
+		</PagerContent>
+	</MudTable>
+	<MudText Inline="true">Selected Customers: @(SelectedCustomers==null ? "" : @SelectedCustomers.Count())</MudText>
+
 
 @code {
+	private List<CustomerModel> CustomerList = new List<CustomerModel>();
+	private List<InternalStatusModel> StatusList = new();
+	[Parameter]
+	public string platformId { get; set; }
+	private string searchString = "";
+	private bool filterBankAcountDetails { get; set; } = true;
+	private bool _isOpenEditCustomer { get; set; }
+	private bool _isOpenComment { get; set; }
+	private string CustomerInternalGuid { get; set; }
+	public bool loading { get; set; } = true;
+	private bool _searchCustomerReference { get; set; } = true;
+	private bool _searchCustomerGuid { get; set; } = true;
+	private bool _searchCompanyName { get; set; } = true;
+	private bool _searchCountry { get; set; } = true;
+	private bool _searchVatNumber { get; set; } = true;
+	private bool _IsOpenInternalStatusForm { get; set; } = false;
+	private CustomerModel selectedItem1 { get; set; } = new();
+	private CustomerModel CustomerBeforeEdit { get; set; } = new();
+	private string? statusFilter { get; set; }
+	private string tableLength { get; set; } = "700px";
+	public bool readOnly { get; set; } = false;
+	private bool _isOpen { get; set; }
+	private List<CustomerModel> originalList { get; set; } = new();
+	private int selectKYCLevel { get; set; } = 3;
+	private HashSet<CustomerModel> SelectedCustomers = new HashSet<CustomerModel>();
+	private MudTr currentRow;
+	private MudTable<CustomerModel> table;
+
+
+	protected override async Task OnInitializedAsync()
+	{
+		await FillList();
+	}
+
+	void FilterKycLevel(int value)
+	{
+		if (currentRow is not null)
+		{
+			SearchClicked();
+		}
+		selectKYCLevel = value;
+		if (value == 0 || value == 1)
+		{
+			CustomerList = originalList.FindAll(x => x.CustomerKYCLevel == value);
+		}
+		else
+		{
+			CustomerList = originalList;
+		}
+
+	}
+
+	async Task FillList()
+	{
+		//StatusList = GetAllInternalStatusUseCase.ExecuteUseCase();
+		//originalList = await CustomerRepo.GetPlatformCustomersWithBankAcountAsync(platformId);
+		//CustomerList = originalList;
+		//loading = false;
+
+
+	}
+
+	private bool FilterFunc(CustomerModel element)
+	{
+		if (statusFilter is null)
+		{
+			if (string.IsNullOrWhiteSpace(searchString))
+				return true;
+			if (element.CustomerReference.Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCustomerReference)
+				return true;
+			if ($"{element.CustomerInternalGuid}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCustomerGuid)
+				return true;
+			if (element.CustomerInformation is not null)
+			{
+				if ($"{element.CustomerInformation.CompanyName}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCompanyName)
+					return true;
+
+				if ($"{element.CustomerInformation.CountryCode}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCountry)
+					return true;
+
+				if ($"{element.CustomerInformation.CompanyVatNumber}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchVatNumber)
+					return true;
+			}
+		}
+
+		if (element.InternalStatus is not null)
+		{
+			if (string.IsNullOrWhiteSpace(searchString) && element.InternalStatus.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+				return true;
+			if (element.CustomerReference.Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCustomerReference && element.InternalStatus.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+				return true;
+			if ($"{element.CustomerInternalGuid}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCustomerGuid && element.InternalStatus.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+				return true;
+			if (element.CustomerInformation is not null)
+			{
+				if ($"{element.CustomerInformation.CompanyName}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCompanyName && element.InternalStatus.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+					return true;
+
+				if ($"{element.CustomerInformation.CountryCode}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCountry && element.InternalStatus.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+					return true;
+
+				if ($"{element.CustomerInformation.CompanyVatNumber}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchVatNumber && element.InternalStatus.Status.Equals(statusFilter, StringComparison.OrdinalIgnoreCase))
+					return true;
+			}
+
+		}
+		else
+		{
+			if (statusFilter == "New")
+			{
+				if (string.IsNullOrWhiteSpace(searchString) && string.IsNullOrEmpty(element.CustomerInternalStatus))
+					return true;
+				if (element.CustomerReference.Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCustomerReference && string.IsNullOrEmpty(element.CustomerInternalStatus))
+					return true;
+				if ($"{element.CustomerInternalGuid}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCustomerGuid && string.IsNullOrEmpty(element.CustomerInternalStatus))
+					return true;
+				if (element.CustomerInformation is not null)
+				{
+					if ($"{element.CustomerInformation.CompanyName}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCompanyName && string.IsNullOrEmpty(element.CustomerInternalStatus))
+						return true;
+
+					if ($"{element.CustomerInformation.CountryCode}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchCountry && string.IsNullOrEmpty(element.CustomerInternalStatus))
+						return true;
+
+					if ($"{element.CustomerInformation.CompanyVatNumber}".Contains(searchString, StringComparison.OrdinalIgnoreCase) && _searchVatNumber && string.IsNullOrEmpty(element.CustomerInternalStatus))
+						return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private void OnRowClicked(TableRowClickEventArgs<CustomerModel> eventArgs)
+	{
+		// Save a reference to the clicked row
+		currentRow = eventArgs.Row;
+	}
+
+	private void SearchClicked()
+	{
+		// Cancel edit on the saved row reference
+		currentRow?.ManagePreviousEdition();
+	}
 
 }
+*@
